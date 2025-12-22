@@ -38,7 +38,7 @@ class MetricType(str, Enum):
     FEEDBACK_COUNT = "feedback_count"
     MEMORY_USAGE = "memory_usage"
     TOKEN_COUNT = "token_count"
-
+    LLM_MODELS_USED = "llm_models_used"
 
 @dataclass
 class ExecutionMetric:

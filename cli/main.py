@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 import sys
 
-from core.config import get_config_manager, ConfigManager
+from ..core.config import get_config_manager, ConfigManager
 from core.state import get_state_manager, Project, ProjectStatus
 from core.llm_client import create_llm_client_from_config
 

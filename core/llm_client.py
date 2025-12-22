@@ -1,7 +1,7 @@
 """
 Flynt LLM Client Module
-Multi-provider LLM client with automatic fallback support.
-Supports: Gemini (free tier), Groq (free tier), and extensible to others.
+Multi-provider LLM client with automatic offline fallback support.
+Supports: over 300+ models through Openrouter and Ollama local models.
 """
 
 import time
@@ -56,7 +56,9 @@ class LLMProvider(ABC):
         pass
 
 
-class GeminiProvider(LLMProvider):
+
+        self._init_client()
+        class GeminiProvider(LLMProvider):
     """Google Gemini provider implementation."""
     
     def __init__(self, api_key: str, model: str = "gemini-1.5-flash", **kwargs):
@@ -80,8 +82,6 @@ class GeminiProvider(LLMProvider):
     
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
         """Generate completion using Gemini."""
-        self._init_client()
-        
         try:
             # Combine system prompt and user prompt
             full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
