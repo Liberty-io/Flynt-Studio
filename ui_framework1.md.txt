@@ -1,0 +1,523 @@
+````plaintext
+Here is a structured design for the Flynt Studio UI that combines the multi-agent orchestration of AutoGen with the developer-centric, Human-in-the-Loop (HITL) experience of VS Code/Cursor.
+
+---
+
+🏗️ Flynt UI: High-Level Architecture
+
+This design follows a modular, event-driven architecture where a central state manager orchestrates communication between the human user, a backend agent orchestration engine, and the reactive frontend components.
+
+```mermaid
+flowchart TD
+    subgraph "Frontend Layer"
+        A["Human Developer<br>(Primary User)"] <-->|"Direct Input/Feedback"| B[Workspace Editor]
+        B <--> C[State Store<br>Vuex/Pinia]
+        C <--> D{Agent Activity Panel}
+        C <--> E[HITL Control Panel]
+        C <--> F[Tool/Context Sidebar]
+        E <-->|"Approval/Rejection"| G[Backend API Gateway]
+    end
+
+    subgraph "Backend/Agent Layer"
+        G <--> H[Flynt Agent Orchestrator]
+        H <--> I[Agent 1: Idea]
+        H <--> J[Agent 2: Planner]
+        H <--> K[Agent 3: Coder]
+        H <--> L[Agent N: ...]
+        H <--> M["External Tools<br>(File System, APIs)"]
+    end
+
+    subgraph "Data & Persistence"
+        N[Project State DB]
+        O[Message & Session Logs]
+        H <--> N
+        H <--> O
+    end
+```
+
+---
+
+📁 Project Structure & Key Components
+
+Here is a suggested file structure to implement this architecture:
+
+```
+flynt-ui/
+├── public/
+├── src/
+│   ├── core/                    # Central state & logic
+│   │   ├── store/              # Global state management (Vuex/Pinia)
+│   │   │   ├── index.ts
+│   │   │   ├── modules/
+│   │   │   │   ├── session.ts  # Active project, user
+│   │   │   │   ├── agents.ts   # Agent registry, status
+│   │   │   │   ├── messages.ts # Conversation history
+│   │   │   │   ├── workspace.ts# Files, open editors
+│   │   │   │   └── hitl.ts     # Pending approvals, intervention queue
+│   │   │   └── router.ts
+│   │   ├── services/           # API communication layer
+│   │   │   ├── agent-service.ts # WebSocket/SSE for agent messages
+│   │   │   ├── project-service.ts
+│   │   │   └── a2ui-adapter.ts # Interprets Agent->UI JSON schemas
+│   │   └── types/              # TypeScript definitions
+│   │       ├── agent.ts
+│   │       ├── message.ts
+│   │       └── a2ui.ts
+│   ├── components/             # Reusable UI Components
+│   │   ├── layout/
+│   │   │   ├── AppLayout.vue
+│   │   │   └── PanelResizer.vue
+│   │   ├── agents/
+│   │   │   ├── AgentAvatar.vue
+│   │   │   ├── AgentStatus.vue
+│   │   │   └── MessageBubble.vue
+│   │   ├── workspace/
+│   │   │   ├── CodeEditor.vue  # Monaco Editor wrapper
+│   │   │   ├── NotebookCell.vue # Jupyter cell renderer
+│   │   │   └── FileTree.vue
+│   │   ├── hitl/
+│   │   │   ├── ApprovalRequest.vue
+│   │   │   ├── InterventionForm.vue
+│   │   │   └── QuickActionBar.vue
+│   │   └── common/
+│   │       └── DynamicForm.vue # Renders A2UI JSON schemas
+│   ├── views/                  # Main application views/panels
+│   │   ├── WorkspaceView.vue   # Primary Editor Panel
+│   │   ├── AgentActivityView.vue
+│   │   ├── HITLControlView.vue
+│   │   └── ToolContextView.vue
+│   ├── composables/            # Vue 3 Composables
+│   │   ├── useAgentChat.ts
+│   │   ├── useWorkspaceSync.ts
+│   │   └── useAutoSave.ts
+│   ├── App.vue
+│   └── main.ts
+├── agent-backend/              # Separate service for agents
+│   ├── orchestrator.py         # Based on your orchestrator.py
+│   ├── agents/                 # Your existing Flynt agents
+│   │   ├── base.py
+│   │   ├── idea_agent.py
+│   │   └── coder_agent.py
+│   ├── adapters/
+│   │   └── frontend_adapter.py # Converts agent actions to UI messages
+│   └── server.py               # FastAPI server with WebSocket support
+└── ... (config files)
+```
+
+---
+
+🧩 Detailed Component Breakdown
+
+1. The Four Core Panels (Views/)
+
+· WorkspaceView.vue (Primary Panel):
+  · Purpose: The developer's main canvas. It's a hybrid editor.
+  · Contains: A CodeEditor (Monaco) for .py/.js files, a NotebookCell renderer for .ipynb files, and a FileTree explorer.
+  · Key Feature: "Live Authoring" mode. When an agent is writing code, it streams into the editor character-by-character (like Cursor's Composer), and the developer can edit alongside it in real-time.
+· AgentActivityView.vue (Left Panel):
+  · Purpose: Visualize multi-agent collaboration.
+  · Contains:
+    1. Message Stream: A chronological log of all inter-agent and agent-user messages (using MessageBubble components).
+    2. Agent Graph: A real-time D3.js or Vue Flow diagram showing agents as nodes and messages/triggers as edges. Highlights the active agent and current task path.
+    3. Agent Roster: A list of all registered agents (AgentAvatar, AgentStatus) showing their current state (Idle, Thinking, Executing, Awaiting Input).
+· HITLControlView.vue (Bottom Panel):
+  · Purpose: The conduit for human oversight. It's a prioritized queue.
+  · Contains:
+    1. ApprovalRequest Cards: For each pending action (e.g., "CoderAgent wants to overwrite main.py"), shows a diff preview and offers Approve, Deny, or Modify & Approve buttons.
+    2. InterventionForm: When an agent is "stuck" or explicitly asks for help, this form renders a dynamic input (via A2UI schema) for the developer to provide guidance.
+    3. QuickActionBar: A set of global controls like Pause All Agents, Force Next Step, Inject Prompt.
+· ToolContextView.vue (Right Sidebar):
+  · Purpose: Show context and manage tools.
+  · Contains:
+    1. Active Project Context: Current goal, selected tasks from the plan, active file context.
+    2. Tool Registry: Toggle which tools agents can use (e.g., "File Write", "Web Search", "Shell Access").
+    3. Generated Artifacts: Thumbnails or links to items generated in this session (e.g., "architecture_diagram.pdf", "test_report.html").
+
+2. The Communication Bridge (services/)
+
+· agent-service.ts: Manages a persistent WebSocket connection to agent-backend/server.py. It listens for AGENT_MESSAGE, AGENT_ACTION_REQUEST, and WORKSPACE_UPDATE events, dispatching them to the store.
+· a2ui-adapter.ts: The interpreter. When an agent sends a message with a "ui_schema" property (following a simplified A2UI spec), this adapter validates it and transforms it into props for the DynamicForm.vue component, which renders the appropriate inputs (sliders, text areas, file pickers) in the HITL panel.
+
+---
+
+🤖 Agent-Backend Integration Pattern
+
+The magic happens in the agent-backend/adapters/frontend_adapter.py. Each Flynt agent doesn't need to know about the UI; it just communicates with the Orchestrator. The Adapter intercepts these messages and enriches them for the frontend.
+
+```python
+# Example in frontend_adapter.py
+class FrontendAdapter:
+    def on_agent_message(self, agent_name, message, tool_call=None):
+        """Convert an agent's internal message to a UI event."""
+        ui_message = {
+            "type": "AGENT_MESSAGE",
+            "agent": agent_name,
+            "content": message,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # If the agent is requesting a tool that requires approval
+        if tool_call and tool_call["name"] in self.APPROVAL_REQUIRED_TOOLS:
+            ui_message["type"] = "ACTION_REQUEST"
+            ui_message["action"] = tool_call
+            ui_message["approval_id"] = generate_uuid() # Link back to the agent's paused execution
+
+        # Send via WebSocket to the specific user session
+        websocket_manager.send(user_id, ui_message)
+
+    def on_agent_generating_code(self, agent_name, filepath, stream):
+        """Stream code to the workspace in real-time."""
+        for chunk in stream:
+            ui_event = {
+                "type": "WORKSPACE_UPDATE",
+                "subtype": "CODE_STREAM",
+                "filepath": filepath,
+                "chunk": chunk
+            }
+            websocket_manager.send(user_id, ui_event)
+```
+
+---
+
+🚀 Key Implementation Patterns
+
+1. Optimistic UI for Agent Actions:
+   · When you click Approve on a file write, the UI immediately updates the FileTree and opens the file in the WorkspaceView with the proposed content, before the backend executes it. If the backend fails, a rollback notification appears.
+2. State Synchronization:
+   · Use the useWorkspaceSync composable to keep the editor's state (cursor position, unsaved changes) in sync with the workspace store module. This allows agents to safely read the latest state before making suggestions.
+3. Dynamic UI Schema (A2UI Lite):
+   · Define a strict JSON schema for what UI elements agents can request. For example, when the Idea Agent needs more details, it can send:
+     ```json
+     {
+       "request_id": "idea_1",
+       "ui_schema": {
+         "title": "Clarify Project Focus",
+         "fields": [
+           {
+             "type": "textarea",
+             "label": "What's the primary goal?",
+             "key": "primary_goal"
+           },
+           {
+             "type": "multi-select",
+             "label": "Key features to prioritize",
+             "key": "features",
+             "options": ["User Auth", "Real-time Updates", "Admin Panel"]
+           }
+         ]
+       }
+     }
+     ```
+     The HITLControlView renders this as a form, and your submission is sent back to the waiting agent.
+
+This structure provides a solid foundation. You can start by building the WorkspaceView and a simple AgentActivityView with a single-agent chat, then layer on the HITL panel and multi-agent orchestration.
+
+---
+
+**Implementation Roadmap**
+
+Overview: this roadmap is a practical, phased guide to complete the Flynt Studio UI (LangFlow-like workflow builder + integrated co-pilot + HITL). Each phase lists deliverables, key files, acceptance criteria, estimates, and risks. Use the Progress Log at the end to track actual work.
+
+Phase 0 — Environment & Sanity (1-2 days)
+- Deliverables: reproducible dev setup, documented run commands.
+- Key files/commands: `requirements.txt`, `.venv` activation, `package.json`, `npx vite --port 3000`, `uvicorn backend_main:app --reload`.
+- Acceptance: both backend and frontend start locally with the documented commands; no fatal runtime errors.
+- Risk: native tooling differences (PowerShell vs cmd) — document exact commands.
+
+Phase 1 — Core App Shell & Pages (2-4 days)
+- Deliverables: app shell, routing, layout, Dashboard, WorkflowBuilder, ProjectDetails, persistent store.
+- Key files: `src/main.tsx`, `src/App.tsx`, `src/components/Layout.tsx`, `src/pages/WorkflowBuilder.tsx`, `src/store/*`.
+- Acceptance: pages render, Zustand store persists basic workflow objects, navigation works.
+
+Phase 2 — Agent Activity & Mock Integration (1-2 days)
+- Deliverables: `AgentActivityView` with message stream and agent roster; `agentService` mock.
+- Key files: `src/pages/AgentActivityView.tsx`, `src/services/agentService.ts`, `src/components/agents/MessageBubble.tsx`.
+- Acceptance: `/agents` route displays live mock messages; messages can be filtered by agent.
+
+Phase 3 — HITL Controls & DynamicForm (3-6 days)
+- Deliverables: `HITLControlView`, `DynamicForm` renderer, `a2ui-adapter` implementation, approval workflows.
+- Key files: `src/pages/HITLControlView.tsx`, `src/components/hitl/DynamicForm.tsx`, `src/services/a2ui-adapter.ts`.
+- Acceptance: backend `ACTION_REQUEST` messages render as forms; user can Approve/Reject/Modify; actions dispatch to `agentService` and appear in UI.
+
+Phase 4 — Real WebSocket Integration & Reconnect (2-4 days)
+- Deliverables: robust `agentService.connect(url)` with reconnection/backoff, message mapping, session resubscribe.
+- Key files: `src/services/agentService.ts` (upgrade from mock to live), `core/frontend_api.py` (ensure event format), `orchestration/*`.
+- Acceptance: client reconnects after network loss and replays any missed events or requests fresh state from backend.
+
+Phase 5 — Editor & Co-pilot (4-8 days)
+- Deliverables: Monaco editor integration, streaming co-pilot panel, apply/rollback flow, inline suggestions.
+- Key files: `src/components/workspace/CodeEditor.tsx` (Monaco wrapper), `src/components/copilot/CopilotPanel.tsx`.
+- Acceptance: co-pilot streaming responses append to an editor buffer; user can accept a suggestion which triggers optimistic apply and backend confirmation.
+
+Phase 6 — Reliability, Tests & CI (3-5 days)
+- Deliverables: unit tests for services and components, integration tests for flows, simple CI job to run tests and lint.
+- Key files: `tests/`, GitHub Actions workflow or similar.
+- Acceptance: critical workflows are covered by tests and CI blocks merge on failures.
+
+Phase 7 — Polish & Deployment (2-4 days)
+- Deliverables: accessibility fixes, UX polish, production build scripts, deployment docs.
+- Key files: `README.md`, `deploy/` docs.
+
+Cross-cutting concerns
+- Security: ensure agent actions that execute tools are gated and require explicit approval if they touch the filesystem or network.
+- Observability: instrument agent events and UI actions with logs (frontend + backend) and surface errors to the user.
+- Performance: stream payloads (SSE/WS) for large logs; paginate message history.
+
+Acceptance Criteria (overall)
+- Backend and frontend run locally with the documented commands.
+- Agents can send `AGENT_MESSAGE`, `ACTION_REQUEST`, and `WORKSPACE_UPDATE` events in documented format, and UI renders them.
+- HITL approval flow works end-to-end with mock backend and with live backend WS events.
+
+Estimated total effort: 3–5 sprints (2-week sprint assumption) depending on parallelization and availability of backend event contracts.
+
+Risks & Mitigations
+- Risk: Backend event formats change — Mitigation: keep adapter layer (`a2ui-adapter` and `agentService`) thin and versioned.
+- Risk: Editor streaming complexity — Mitigation: start with append-only streaming buffer and add cursors later.
+
+----
+
+**Progress Log (live)**
+- [2025-12-22] Created implementation roadmap and initial progress log in `ui_framework1.md.txt`. (This entry)
+- [2025-12-22] Dev environment confirmed: Python venv at `C:\Users\user\Desktop\FlyntStudio\.venv` active; `npm install` and `npx vite` verified. (See `requirements.txt` and `package.json` fixes.)
+- [2025-12-22] Build fixes applied: replaced `process.env` with `import.meta.env` in frontend API; corrected `index.html`; removed invalid `react-flow-renderer` dependency. (Files: `src/services/api.ts`, `index.html`, `package.json`.)
+- [2025-12-22] Core UI scaffold completed: `src/main.tsx`, `src/App.tsx`, layout components, and base pages implemented. (Navigation and store wired.)
+- [2025-12-22] AgentActivity and `agentService` mock scaffolding completed; `/agents` route shows mock events. (Files: `src/pages/AgentActivityView.tsx`, `src/services/agentService.ts`.)
+
+Completed stages (Phase 0–5 scaffolding):
+- [2025-12-22] Implemented `HITLControlView`, `DynamicForm`, and `a2ui-adapter` (Phase 3 scaffolding) with example action_request schema.
+- [2025-12-22] Enhanced `agentService` with reconnect/backoff, heartbeat, and send queue (Phase 4 WS foundation).
+- [2025-12-22] Added streaming editor stub `CodeEditor.tsx` and `hitlActions.ts` for optimistic flows (Phase 5/9 scaffolding).
+- [2025-12-22] Added frontend README, CI workflow (`.github/workflows/ci.yml`), and documentation.
+- [2025-12-22] Fixed app initialization: added `useEffect` in `App.tsx` to start `agentService.startMock()`, enabling live mock events.
+- [2025-12-22] Both servers running: Backend on http://localhost:8000 (FastAPI + Uvicorn), Frontend on http://localhost:3000 (Vite).
+- [2025-12-22] HITL UI live at http://localhost:3000/hitl — receiving mock `action_request` events every 3s; Approve/Reject flows operational.
+- [2025-12-22] Agent Activity page live at http://localhost:3000/agents — receiving mock agent messages.
+
+**Status: Phase 0–5 implementation complete and verified running.**
+
+Next actions (Phase 6+):
+- Expand CI pipeline to include frontend linting and unit tests.
+- Implement full Monaco editor with streaming and apply/rollback flows.
+- Wire real backend WebSocket events (replace mock).
+- Add agent graph visualization to AgentActivityView.
+- Add persistent state store (Zustand) hydration and HITL queue state.
+
+---
+
+Reference links (workspace):
+- App entry: [src/main.tsx](src/main.tsx#L1)
+- Frontend API client: [src/services/api.ts](src/services/api.ts#L1)
+- AgentActivity: [src/pages/AgentActivityView.tsx](src/pages/AgentActivityView.tsx#L1)
+- Agent service mock: [src/services/agentService.ts](src/services/agentService.ts#L1)
+Here is a structured design for the Flynt Studio UI that combines the multi-agent orchestration of AutoGen with the developer-centric, Human-in-the-Loop (HITL) experience of VS Code/Cursor.
+
+---
+
+🏗️ Flynt UI: High-Level Architecture
+
+This design follows a modular, event-driven architecture where a central state manager orchestrates communication between the human user, a backend agent orchestration engine, and the reactive frontend components.
+
+```mermaid
+flowchart TD
+    subgraph "Frontend Layer"
+        A["Human Developer<br>(Primary User)"] <-->|"Direct Input/Feedback"| B[Workspace Editor]
+        B <--> C[State Store<br>Vuex/Pinia]
+        C <--> D{Agent Activity Panel}
+        C <--> E[HITL Control Panel]
+        C <--> F[Tool/Context Sidebar]
+        E <-->|"Approval/Rejection"| G[Backend API Gateway]
+    end
+
+    subgraph "Backend/Agent Layer"
+        G <--> H[Flynt Agent Orchestrator]
+        H <--> I[Agent 1: Idea]
+        H <--> J[Agent 2: Planner]
+        H <--> K[Agent 3: Coder]
+        H <--> L[Agent N: ...]
+        H <--> M["External Tools<br>(File System, APIs)"]
+    end
+
+    subgraph "Data & Persistence"
+        N[Project State DB]
+        O[Message & Session Logs]
+        H <--> N
+        H <--> O
+    end
+```
+
+---
+
+📁 Project Structure & Key Components
+
+Here is a suggested file structure to implement this architecture:
+
+```
+flynt-ui/
+├── public/
+├── src/
+│   ├── core/                    # Central state & logic
+│   │   ├── store/              # Global state management (Vuex/Pinia)
+│   │   │   ├── index.ts
+│   │   │   ├── modules/
+│   │   │   │   ├── session.ts  # Active project, user
+│   │   │   │   ├── agents.ts   # Agent registry, status
+│   │   │   │   ├── messages.ts # Conversation history
+│   │   │   │   ├── workspace.ts# Files, open editors
+│   │   │   │   └── hitl.ts     # Pending approvals, intervention queue
+│   │   │   └── router.ts
+│   │   ├── services/           # API communication layer
+│   │   │   ├── agent-service.ts # WebSocket/SSE for agent messages
+│   │   │   ├── project-service.ts
+│   │   │   └── a2ui-adapter.ts # Interprets Agent->UI JSON schemas
+│   │   └── types/              # TypeScript definitions
+│   │       ├── agent.ts
+│   │       ├── message.ts
+│   │       └── a2ui.ts
+│   ├── components/             # Reusable UI Components
+│   │   ├── layout/
+│   │   │   ├── AppLayout.vue
+│   │   │   └── PanelResizer.vue
+│   │   ├── agents/
+│   │   │   ├── AgentAvatar.vue
+│   │   │   ├── AgentStatus.vue
+│   │   │   └── MessageBubble.vue
+│   │   ├── workspace/
+│   │   │   ├── CodeEditor.vue  # Monaco Editor wrapper
+│   │   │   ├── NotebookCell.vue # Jupyter cell renderer
+│   │   │   └── FileTree.vue
+│   │   ├── hitl/
+│   │   │   ├── ApprovalRequest.vue
+│   │   │   ├── InterventionForm.vue
+│   │   │   └── QuickActionBar.vue
+│   │   └── common/
+│   │       └── DynamicForm.vue # Renders A2UI JSON schemas
+│   ├── views/                  # Main application views/panels
+│   │   ├── WorkspaceView.vue   # Primary Editor Panel
+│   │   ├── AgentActivityView.vue
+│   │   ├── HITLControlView.vue
+│   │   └── ToolContextView.vue
+│   ├── composables/            # Vue 3 Composables
+│   │   ├── useAgentChat.ts
+│   │   ├── useWorkspaceSync.ts
+│   │   └── useAutoSave.ts
+│   ├── App.vue
+│   └── main.ts
+├── agent-backend/              # Separate service for agents
+│   ├── orchestrator.py         # Based on your orchestrator.py
+│   ├── agents/                 # Your existing Flynt agents
+│   │   ├── base.py
+│   │   ├── idea_agent.py
+│   │   └── coder_agent.py
+│   ├── adapters/
+│   │   └── frontend_adapter.py # Converts agent actions to UI messages
+│   └── server.py               # FastAPI server with WebSocket support
+└── ... (config files)
+```
+
+---
+
+🧩 Detailed Component Breakdown
+
+1. The Four Core Panels (Views/)
+
+· WorkspaceView.vue (Primary Panel):
+  · Purpose: The developer's main canvas. It's a hybrid editor.
+  · Contains: A CodeEditor (Monaco) for .py/.js files, a NotebookCell renderer for .ipynb files, and a FileTree explorer.
+  · Key Feature: "Live Authoring" mode. When an agent is writing code, it streams into the editor character-by-character (like Cursor's Composer), and the developer can edit alongside it in real-time.
+· AgentActivityView.vue (Left Panel):
+  · Purpose: Visualize multi-agent collaboration.
+  · Contains:
+    1. Message Stream: A chronological log of all inter-agent and agent-user messages (using MessageBubble components).
+    2. Agent Graph: A real-time D3.js or Vue Flow diagram showing agents as nodes and messages/triggers as edges. Highlights the active agent and current task path.
+    3. Agent Roster: A list of all registered agents (AgentAvatar, AgentStatus) showing their current state (Idle, Thinking, Executing, Awaiting Input).
+· HITLControlView.vue (Bottom Panel):
+  · Purpose: The conduit for human oversight. It's a prioritized queue.
+  · Contains:
+    1. ApprovalRequest Cards: For each pending action (e.g., "CoderAgent wants to overwrite main.py"), shows a diff preview and offers Approve, Deny, or Modify & Approve buttons.
+    2. InterventionForm: When an agent is "stuck" or explicitly asks for help, this form renders a dynamic input (via A2UI schema) for the developer to provide guidance.
+    3. QuickActionBar: A set of global controls like Pause All Agents, Force Next Step, Inject Prompt.
+· ToolContextView.vue (Right Sidebar):
+  · Purpose: Show context and manage tools.
+  · Contains:
+    1. Active Project Context: Current goal, selected tasks from the plan, active file context.
+    2. Tool Registry: Toggle which tools agents can use (e.g., "File Write", "Web Search", "Shell Access").
+    3. Generated Artifacts: Thumbnails or links to items generated in this session (e.g., "architecture_diagram.pdf", "test_report.html").
+
+2. The Communication Bridge (services/)
+
+· agent-service.ts: Manages a persistent WebSocket connection to agent-backend/server.py. It listens for AGENT_MESSAGE, AGENT_ACTION_REQUEST, and WORKSPACE_UPDATE events, dispatching them to the store.
+· a2ui-adapter.ts: The interpreter. When an agent sends a message with a "ui_schema" property (following a simplified A2UI spec), this adapter validates it and transforms it into props for the DynamicForm.vue component, which renders the appropriate inputs (sliders, text areas, file pickers) in the HITL panel.
+
+---
+
+🤖 Agent-Backend Integration Pattern
+
+The magic happens in the agent-backend/adapters/frontend_adapter.py. Each Flynt agent doesn't need to know about the UI; it just communicates with the Orchestrator. The Adapter intercepts these messages and enriches them for the frontend.
+
+```python
+# Example in frontend_adapter.py
+class FrontendAdapter:
+    def on_agent_message(self, agent_name, message, tool_call=None):
+        """Convert an agent's internal message to a UI event."""
+        ui_message = {
+            "type": "AGENT_MESSAGE",
+            "agent": agent_name,
+            "content": message,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # If the agent is requesting a tool that requires approval
+        if tool_call and tool_call["name"] in self.APPROVAL_REQUIRED_TOOLS:
+            ui_message["type"] = "ACTION_REQUEST"
+            ui_message["action"] = tool_call
+            ui_message["approval_id"] = generate_uuid() # Link back to the agent's paused execution
+
+        # Send via WebSocket to the specific user session
+        websocket_manager.send(user_id, ui_message)
+
+    def on_agent_generating_code(self, agent_name, filepath, stream):
+        """Stream code to the workspace in real-time."""
+        for chunk in stream:
+            ui_event = {
+                "type": "WORKSPACE_UPDATE",
+                "subtype": "CODE_STREAM",
+                "filepath": filepath,
+                "chunk": chunk
+            }
+            websocket_manager.send(user_id, ui_event)
+```
+
+---
+
+🚀 Key Implementation Patterns
+
+1. Optimistic UI for Agent Actions:
+   · When you click Approve on a file write, the UI immediately updates the FileTree and opens the file in the WorkspaceView with the proposed content, before the backend executes it. If the backend fails, a rollback notification appears.
+2. State Synchronization:
+   · Use the useWorkspaceSync composable to keep the editor's state (cursor position, unsaved changes) in sync with the workspace store module. This allows agents to safely read the latest state before making suggestions.
+3. Dynamic UI Schema (A2UI Lite):
+   · Define a strict JSON schema for what UI elements agents can request. For example, when the Idea Agent needs more details, it can send:
+     ```json
+     {
+       "request_id": "idea_1",
+       "ui_schema": {
+         "title": "Clarify Project Focus",
+         "fields": [
+           {
+             "type": "textarea",
+             "label": "What's the primary goal?",
+             "key": "primary_goal"
+           },
+           {
+             "type": "multi-select",
+             "label": "Key features to prioritize",
+             "key": "features",
+             "options": ["User Auth", "Real-time Updates", "Admin Panel"]
+           }
+         ]
+       }
+     }
+     ```
+     The HITLControlView renders this as a form, and your submission is sent back to the waiting agent.
+
+This structure provides a solid foundation. You can start by building the WorkspaceView and a simple AgentActivityView with a single-agent chat, then layer on the HITL panel and multi-agent orchestration.
