@@ -1,7 +1,5 @@
 """
-Model Training & Evaluation - Phase 5.3 Data Science Agent
-
-Model training, validation, and evaluation utilities
+Model training, validation, fine-tuning, and evaluation utilities
 """
 
 from dataclasses import dataclass, field
