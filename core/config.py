@@ -99,43 +99,76 @@ class ConfigManager:
         return self._build_config()
     
     def _build_config(self) -> FlyntConfig:
-        """Build FlyntConfig from loaded data."""
+        """Build FlyntConfig from loaded data with validation."""
         llm_config = self.config_data.get("llm", {})
         system_config = self.config_data.get("system", {})
         
+        # Validate LLM config exists
+        if not llm_config:
+            raise ValueError("Missing 'llm' configuration in settings")
+        
         # Get primary provider
         primary_provider = llm_config.get("primary_provider", "gemini")
+        if not primary_provider:
+            raise ValueError("No primary_provider specified in config")
+        
         primary_settings = llm_config.get(primary_provider, {})
         primary_api_key = os.getenv(f"{primary_provider.upper()}_API_KEY", "")
+        
+        # Validate primary provider is supported
+        supported_providers = ["gemini", "groq", "openrouter", "ollama"]
+        if primary_provider not in supported_providers:
+            logger.warning(f"Unknown primary provider: {primary_provider}. Expected one of {supported_providers}")
+        
+        # Validate API key availability for non-local providers
+        if primary_provider != "ollama" and not primary_api_key:
+            logger.warning(f"No API key found for {primary_provider}. Set {primary_provider.upper()}_API_KEY environment variable")
         
         primary_llm = LLMConfig(
             provider=primary_provider,
             api_key=primary_api_key,
             model=primary_settings.get("model", "gemini-1.5-flash"),
-            temperature=primary_settings.get("temperature", 0.7),
-            max_tokens=primary_settings.get("max_tokens", 4096)
+            temperature=min(max(primary_settings.get("temperature", 0.7), 0.0), 2.0),  # Clamp to 0-2
+            max_tokens=max(primary_settings.get("max_tokens", 4096), 1)  # At least 1 token
         )
         
         # Get fallback provider if configured
         fallback_llm = None
         fallback_provider = llm_config.get("fallback_provider")
         if fallback_provider:
+            if fallback_provider not in supported_providers:
+                logger.warning(f"Unknown fallback provider: {fallback_provider}")
+            
             fallback_settings = llm_config.get(fallback_provider, {})
             fallback_api_key = os.getenv(f"{fallback_provider.upper()}_API_KEY", "")
-            if fallback_api_key:
+            
+            if fallback_api_key or fallback_provider == "ollama":
                 fallback_llm = LLMConfig(
                     provider=fallback_provider,
                     api_key=fallback_api_key,
                     model=fallback_settings.get("model", "llama-3.1-70b-versatile"),
-                    temperature=fallback_settings.get("temperature", 0.7),
-                    max_tokens=fallback_settings.get("max_tokens", 4096)
+                    temperature=min(max(fallback_settings.get("temperature", 0.7), 0.0), 2.0),
+                    max_tokens=max(fallback_settings.get("max_tokens", 4096), 1)
                 )
+            else:
+                logger.warning(f"Fallback provider {fallback_provider} configured but no API key found")
+        
+        # Validate system config
+        max_retries = system_config.get("max_retries", 3)
+        if not isinstance(max_retries, int) or max_retries < 1:
+            logger.warning(f"Invalid max_retries: {max_retries}, using default 3")
+            max_retries = 3
+        
+        timeout = system_config.get("timeout", 30)
+        if not isinstance(timeout, int) or timeout < 1:
+            logger.warning(f"Invalid timeout: {timeout}, using default 30")
+            timeout = 30
         
         return FlyntConfig(
             primary_llm=primary_llm,
             fallback_llm=fallback_llm,
-            max_retries=system_config.get("max_retries", 3),
-            timeout=system_config.get("timeout", 30),
+            max_retries=max_retries,
+            timeout=timeout,
             debug=system_config.get("debug", False)
         )
     

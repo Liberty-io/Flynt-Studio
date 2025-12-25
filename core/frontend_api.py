@@ -5,13 +5,16 @@ Add these endpoints to your FastAPI main application to enable frontend communic
 """
 
 from fastapi import FastAPI, WebSocket, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Generator
+from typing import List, Optional, Generator, Dict, Any
 import json
+from datetime import datetime
 from core.state import StateManager
 from core.llm_client import LLMClient, create_llm_client_from_config
 from core.collaboration_state import CollaborationStateManager
+from core.monitoring import get_agent_monitor, HealthStatus
+from core.error_handler import get_error_recovery_manager
 from orchestration.executor import Executor
 from core.config import get_config_manager
 
@@ -47,6 +50,15 @@ class WorkflowSave(BaseModel):
 
 class CopilotMessage(BaseModel):
     message: str
+
+class HealthCheckResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    timestamp: str
+    llm_health: Dict[str, Any]
+    agents: Dict[str, Any]
+    error_recovery: Dict[str, Any]
+    system: Dict[str, Any]
 
 class CopilotContext(BaseModel):
     workflow: Optional[dict] = None
@@ -372,6 +384,88 @@ def setup_frontend_api(app: FastAPI):
     state_manager = get_state_manager()
     llm_client = get_llm_client()
     executor = get_executor()
+    
+    # Setup health check endpoint
+    @app.get("/health", response_model=HealthCheckResponse)
+    async def health_check():
+        """
+        Comprehensive health check endpoint.
+        Returns status of all system components.
+        """
+        # Get LLM health
+        try:
+            llm_health = llm_client.health_check()
+        except Exception as e:
+            llm_health = {"error": str(e), "available": False}
+        
+        # Get agent monitoring stats
+        monitor = get_agent_monitor()
+        agent_stats = monitor.get_monitoring_summary()
+        
+        # Get error recovery stats
+        recovery_mgr = get_error_recovery_manager()
+        error_stats = recovery_mgr.get_error_stats()
+        
+        # Overall status
+        overall_status = "healthy"
+        if not llm_health.get("primary", {}).get("success"):
+            overall_status = "degraded"
+        if agent_stats.get("agent_count_by_status", {}).get("unhealthy", 0) > 0:
+            overall_status = "degraded"
+        if error_stats.get("total_errors", 0) > 100:
+            overall_status = "degraded"
+        
+        return HealthCheckResponse(
+            status=overall_status,
+            timestamp=datetime.now().isoformat(),
+            llm_health=llm_health,
+            agents=agent_stats,
+            error_recovery=error_stats,
+            system={
+                "total_errors_recorded": len(recovery_mgr.error_history),
+                "circuit_breaker_status": "monitoring"
+            }
+        )
+    
+    @app.get("/health/agents")
+    async def agents_health():
+        """Get detailed health status for all agents."""
+        monitor = get_agent_monitor()
+        return monitor.get_monitoring_summary()
+    
+    @app.get("/health/agents/{agent_name}")
+    async def agent_health(agent_name: str):
+        """Get health status for a specific agent."""
+        monitor = get_agent_monitor()
+        metrics = monitor.get_agent_metrics(agent_name)
+        return {
+            "agent_name": metrics.agent_name,
+            "status": metrics.status.value,
+            "success_rate": metrics.success_rate,
+            "avg_execution_time_ms": metrics.avg_execution_time_ms,
+            "avg_quality_score": metrics.avg_quality_score,
+            "error_rate": metrics.error_rate,
+            "total_executions": metrics.total_executions,
+            "last_execution": metrics.last_execution.isoformat() if metrics.last_execution else None
+        }
+    
+    @app.get("/health/errors")
+    async def errors_health():
+        """Get error statistics and history."""
+        recovery_mgr = get_error_recovery_manager()
+        return {
+            "stats": recovery_mgr.get_error_stats(),
+            "recent_errors": [
+                {
+                    "timestamp": e.timestamp.isoformat(),
+                    "error_type": e.error_type.value,
+                    "severity": e.severity.value,
+                    "message": e.message,
+                    "agent_name": e.agent_name
+                }
+                for e in recovery_mgr.error_history[-10:]  # Last 10 errors
+            ]
+        }
     
     setup_project_routes(app, state_manager)
     setup_workflow_routes(app, state_manager)

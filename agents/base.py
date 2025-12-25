@@ -165,11 +165,29 @@ class BaseAgent(ABC):
         Returns:
             True if valid, False otherwise.
         """
+        if not isinstance(context, AgentContext):
+            logger.error(f"[{self.name}] Context is not AgentContext instance")
+            return False
+        
         required = ['project_id', 'project_name', 'user_input']
         for field in required:
-            if not getattr(context, field):
+            if not getattr(context, field, None):
                 logger.error(f"[{self.name}] Missing required context field: {field}")
                 return False
+        
+        # Validate field types
+        if not isinstance(context.project_id, int) or context.project_id <= 0:
+            logger.error(f"[{self.name}] Invalid project_id: must be positive integer")
+            return False
+        
+        if not isinstance(context.project_name, str) or len(context.project_name.strip()) == 0:
+            logger.error(f"[{self.name}] Invalid project_name: must be non-empty string")
+            return False
+        
+        if not isinstance(context.user_input, str) or len(context.user_input.strip()) == 0:
+            logger.error(f"[{self.name}] Invalid user_input: must be non-empty string")
+            return False
+        
         return True
     
     def create_result(
@@ -256,6 +274,33 @@ class AgentRegistry:
             Dictionary of agent name to agent instance.
         """
         return self._agents.copy()
+    
+    def unregister(self, name: str) -> bool:
+        """Unregister an agent.
+        
+        Args:
+            name: Agent name to unregister.
+            
+        Returns:
+            True if agent was unregistered, False if not found.
+        """
+        if name in self._agents:
+            del self._agents[name]
+            logger.info(f"Unregistered agent: {name}")
+            return True
+        logger.warning(f"Agent not found for unregistration: {name}")
+        return False
+    
+    def is_registered(self, name: str) -> bool:
+        """Check if an agent is registered.
+        
+        Args:
+            name: Agent name.
+            
+        Returns:
+            True if registered, False otherwise.
+        """
+        return name in self._agents
 
 
 # Global registry instance

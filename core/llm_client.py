@@ -56,9 +56,7 @@ class LLMProvider(ABC):
         pass
 
 
-
-        self._init_client()
-        class GeminiProvider(LLMProvider):
+class GeminiProvider(LLMProvider):
     """Google Gemini provider implementation."""
     
     def __init__(self, api_key: str, model: str = "gemini-1.5-flash", **kwargs):
@@ -423,31 +421,52 @@ class LLMClient:
         max_retries: int = 3,
         retry_delay: float = 1.0
     ) -> LLMResponse:
-        """Generate completion with automatic fallback.
+        """Generate completion with automatic fallback and exponential backoff.
         
         Args:
             prompt: User prompt.
             system_prompt: Optional system prompt.
             max_retries: Maximum retry attempts per provider.
-            retry_delay: Delay between retries in seconds.
+            retry_delay: Initial delay between retries in seconds (exponentially increases).
             
         Returns:
             LLMResponse object.
         """
+        # Validate inputs
+        if not prompt or not isinstance(prompt, str):
+            logger.error("Invalid prompt: must be non-empty string")
+            return LLMResponse(
+                content="",
+                provider="none",
+                model="none",
+                usage={},
+                success=False,
+                error="Invalid prompt"
+            )
+        
         # Try primary provider
         if self.primary.is_available():
             for attempt in range(max_retries):
-                logger.info(f"Attempting generation with {self.primary.model} (attempt {attempt + 1}/{max_retries})")
-                response = self.primary.generate(prompt, system_prompt)
-                
-                if response.success:
-                    self._update_usage(response.usage)
-                    logger.info(f"Successfully generated with {response.provider}")
-                    return response
-                
-                if attempt < max_retries - 1:
-                    logger.warning(f"Retry after {retry_delay}s...")
-                    time.sleep(retry_delay)
+                try:
+                    logger.info(f"Attempting generation with {self.primary.model} (attempt {attempt + 1}/{max_retries})")
+                    response = self.primary.generate(prompt, system_prompt)
+                    
+                    if response.success:
+                        self._update_usage(response.usage)
+                        logger.info(f"Successfully generated with {response.provider} ({response.usage.get('total_tokens', 0)} tokens)")
+                        return response
+                    
+                    # Retry with exponential backoff: 1s, 2s, 4s, 8s...
+                    if attempt < max_retries - 1:
+                        backoff_delay = retry_delay * (2 ** attempt)
+                        logger.warning(f"Generation failed: {response.error}. Retrying in {backoff_delay}s...")
+                        time.sleep(backoff_delay)
+                except Exception as e:
+                    logger.error(f"Primary provider error: {str(e)}")
+                    if attempt < max_retries - 1:
+                        backoff_delay = retry_delay * (2 ** attempt)
+                        logger.warning(f"Retrying in {backoff_delay}s...")
+                        time.sleep(backoff_delay)
         else:
             logger.warning(f"Primary provider {self.primary.model} not available")
         
@@ -455,17 +474,28 @@ class LLMClient:
         if self.fallback and self.fallback.is_available():
             logger.info(f"Falling back to {self.fallback.model}")
             for attempt in range(max_retries):
-                logger.info(f"Attempting generation with {self.fallback.model} (attempt {attempt + 1}/{max_retries})")
-                response = self.fallback.generate(prompt, system_prompt)
-                
-                if response.success:
-                    self._update_usage(response.usage)
-                    logger.info(f"Successfully generated with {response.provider}")
-                    return response
-                
-                if attempt < max_retries - 1:
-                    logger.warning(f"Retry after {retry_delay}s...")
-                    time.sleep(retry_delay)
+                try:
+                    logger.info(f"Attempting generation with {self.fallback.model} (attempt {attempt + 1}/{max_retries})")
+                    response = self.fallback.generate(prompt, system_prompt)
+                    
+                    if response.success:
+                        self._update_usage(response.usage)
+                        logger.info(f"Successfully generated with {response.provider} ({response.usage.get('total_tokens', 0)} tokens)")
+                        return response
+                    
+                    # Retry with exponential backoff
+                    if attempt < max_retries - 1:
+                        backoff_delay = retry_delay * (2 ** attempt)
+                        logger.warning(f"Generation failed: {response.error}. Retrying in {backoff_delay}s...")
+                        time.sleep(backoff_delay)
+                except Exception as e:
+                    logger.error(f"Fallback provider error: {str(e)}")
+                    if attempt < max_retries - 1:
+                        backoff_delay = retry_delay * (2 ** attempt)
+                        logger.warning(f"Retrying in {backoff_delay}s...")
+                        time.sleep(backoff_delay)
+        else:
+            logger.warning("No fallback provider configured")
         
         # All attempts failed
         error_msg = "All LLM providers failed or unavailable"
