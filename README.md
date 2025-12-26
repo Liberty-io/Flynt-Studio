@@ -1,3 +1,5 @@
+![FlyntFlow Banner](FlyntFlow_1.jpg)
+
 # 🚀 Flynt Studio CLI (Open Source)
 
 **Enterprise-Grade Agentic AI Development Platform - Command Line Interface**
