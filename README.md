@@ -10,6 +10,8 @@
 [![Status: Production Ready](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)](IMPLEMENTATION_FIXES.md)
 [![Version](https://img.shields.io/badge/Version-CLI%20v1.0-blue)](https://github.com/Liberty-io/Flynt-Studio)
 
+**Topics:** Agentic AI Orchestration · AI Agents · Enterprise AI · CLI Platform · Multi-Agent Systems · AI Development · Code Generation · DevOps Automation
+
 ---
 
 ## 🎯 **About This Version**
