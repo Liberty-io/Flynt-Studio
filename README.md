@@ -18,20 +18,12 @@
 
 **This is the open-source CLI (Command Line Interface) version** - the core foundation of the Flynt Studio platform.
 
-### **Current: CLI Version (Open Source)**
+### **Open Source CLI Version**
 - ✅ **Full CLI Access** - Complete command-line control of all 8 specialized agents
 - ✅ **REST API** - Programmatic access via FastAPI endpoints
 - ✅ **Open Source** - MIT licensed, community-driven development
 - ✅ **Production Ready** - Enterprise-grade error recovery and monitoring
 - ✅ **Self-Hosted** - Deploy anywhere (Docker, Kubernetes, cloud)
-
-### **Future: GUI Version (Commercial)**
-Once the CLI core achieves optimal performance and stability, a **commercial GUI version** will be developed featuring:
-- Visual workflow builder with drag-and-drop
-- Real-time collaboration features
-- Advanced visualization dashboards
-- Enterprise SSO and multi-tenancy
-- Premium support and SLAs
 
 ---
 
@@ -382,22 +374,11 @@ Orchestrate end-to-end ML workflows from data preparation to model serving and m
 - [ ] Advanced RAG capabilities
 - [ ] CLI workflow automation
 
-**Q4 2025 - GUI Foundation Preparation**
+**Q4 2025 - Advanced CLI Features**
 - [ ] CLI core validation and stabilization
-- [ ] API finalization for GUI integration
 - [ ] Advanced security features
 - [ ] Compliance automation
-- [ ] Performance validation for GUI launch
-
-### **GUI Version (Commercial) - Future Development**
-
-**2026+ - When CLI Core is Production-Validated**
-- Visual workflow builder with drag-and-drop
-- Real-time collaboration features
-- Advanced visualization dashboards
-- Enterprise SSO and multi-tenancy
-- White-label options
-- Premium support and SLAs
+- [ ] Performance optimization
 - Advanced analytics dashboard
 - A/B testing framework
 
@@ -411,18 +392,11 @@ Orchestrate end-to-end ML workflows from data preparation to model serving and m
 - 📚 **Documentation** - Comprehensive guides and examples
 - 🤝 **Community** - Join our growing developer community
 
-### **Commercial Services (Available Now)**
+### **Professional Services & Support**
 - 🏗️ **Custom Agent Development** - Specialized agents for your use case
 - 🎯 **Architecture Consulting** - Expert guidance on implementation
 - 🎓 **Training & Workshops** - Team onboarding and best practices
 - ⚡ **Priority Support** - Direct access to core team
-
-### **Future GUI Commercial Version**
-- Visual workflow builder and editor
-- Enterprise features and integrations
-- Dedicated support teams and SLAs
-- Custom white-label deployments
-- Multi-tenant cloud hosting option
 
 **Contact**: enterprise@flyntstudio.dev
 
